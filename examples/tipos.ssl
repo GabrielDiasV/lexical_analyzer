@@ -1,0 +1,19 @@
+type vetor = array [ 10 ] of integer;
+type ponto = struct { x: integer; y: integer };
+type nome = string;
+
+function main(): boolean
+{
+  var v: vetor;
+  var p: ponto;
+  var s: nome;
+  var c: char;
+  var ok: boolean;
+  v[0] = 42;
+  p.x = v[0] / 2;
+  s = "ola, mundo";
+  c = 'z';
+  ok = (p.x != 21) || !(p.y >= 0) && true;
+  do { p.y--; --p.y; } while (p.y > -5);
+  if (ok == false) break; continue;
+}
