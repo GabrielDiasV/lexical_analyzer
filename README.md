@@ -29,7 +29,14 @@ s      = '"' . any* . '"'                   -> STRINGVAL (idem)
 ```
 
 Palavras reservadas: `array boolean break char continue do else false function
-if integer of string struct true type var while`.
+if integer of return string struct true type var while`.
+
+`return` não está na gramática da seção 2.1, mas aparece em todos os exemplos
+do cap. 7 e é necessário para a geração de código (instrução `RET`).
+
+Literais de caractere aceitam também `'\0'`, `'\n'`, `'\t'` e `'\\'` (a
+apostila usa `'\0'` nos exemplos 7.4.2 e 7.4.3). `'\'` sozinho continua sendo
+a barra invertida.
 
 Símbolos: `: ; , = [ ] { } ( ) && || < > <= >= != == + ++ - -- * / . !`.
 
@@ -45,8 +52,15 @@ lexical_analyzer/
 │   ├── tokens.py    enumeração TokenKind, vetor KEYWORDS, tabelas de símbolos, classe Token
 │   ├── tables.py    search_keyword (busca binária), NameTable, ConstTable
 │   └── lexer.py     classe Lexer: next_token() e o autômato
-├── main.py          interface de linha de comando
-├── examples/        programas de exemplo (.ssl)
+├── compiler/
+│   ├── symbols.py   objetos (fig. 7.11), tabela de símbolos com escopos, CheckTypes
+│   ├── errors.py    códigos de erro de escopo/tipo (ERR_*) e CompileError
+│   ├── parser.py    descida recursiva + escopo + tipos + geração de código (uma passada)
+│   ├── codegen.py   emissor do Assembly: newLabel(), BEGIN_FUNC/END_FUNC, pool de constantes
+│   └── vm.py        montador e interpretador da máquina virtual de pilha
+├── main.py          CLI do analisador léxico (lista tokens)
+├── compile.py       CLI do compilador (gera Assembly e executa)
+├── examples/        programas de exemplo (.ssl); examples/codegen/ para o compilador
 └── tests/           testes automatizados (unittest)
 ```
 
@@ -166,3 +180,150 @@ Um analisador sintático consome os tokens chamando `lx.next_token()`
 repetidamente, exatamente como `nextToken()` na apostila. Após cada chamada,
 `lx.token` e `lx.token_secundario` guardam o último token principal e
 secundário devolvidos.
+
+## Geração de código
+
+O pacote `compiler` implementa o cap. 7 da apostila. Como a geração de código é
+dirigida pela sintaxe, ele inclui as etapas anteriores das quais ela depende:
+análise sintática por descida recursiva (seção 3.4), análise de escopo (cap. 5)
+e de tipos (cap. 6). Tudo acontece numa única passada: as regras de atributos
+das figs. 7.12–7.29 rodam no ponto da derivação em que a apostila as coloca, e
+os marcadores semânticos (NB, NF, MF, MT, ME, MW, MC) aparecem comentados no
+código.
+
+```bash
+# imprime o Assembly gerado
+python3 compile.py examples/codegen/fatorial.ssl
+
+# compila e executa na máquina virtual (entrada: main ou a última função)
+python3 compile.py examples/codegen/bsort.ssl --run
+python3 compile.py examples/codegen/fatorial.ssl --run --entry fatorial --args 6
+
+# grava o Assembly e o executa depois
+python3 compile.py examples/codegen/strings.ssl -o strings.asm
+python3 compile.py strings.asm --run --trace
+
+# forma geral com LOAD_REF/DE_REF/STORE_REF também para escalares (fig. 7.8)
+python3 compile.py examples/codegen/fatorial.ssl --refs
+```
+
+Saída para `examples/codegen/fatorial.ssl`: a mesma da seção 7.4.1, instrução
+por instrução (os comentários `;` são ignorados pelo montador):
+
+```
+; pool de constantes
+CONST 0 int 2
+CONST 1 int 1
+CONST 2 int 0
+CONST 3 int 0
+; pool de funções / array de código
+BEGIN_FUNC 0 1 3 ; fatorial
+	LOAD_CONST 0
+	STORE_VAR 1
+	LOAD_CONST 1
+	STORE_VAR 2
+L0:
+	LOAD_VAR 1
+	LOAD_VAR 0
+	LE
+	TJMP_FW L1
+	LOAD_VAR 2
+	LOAD_VAR 1
+	DUP
+	INC
+	STORE_VAR 1
+	MUL
+	STORE_VAR 2
+	JMP_BW L0
+L1:
+	LOAD_VAR 2
+	RET
+END_FUNC
+...
+```
+
+### O que é gerado
+
+| Construção | Código | Figura |
+|---|---|---|
+| `function f(...)` | `BEGIN_FUNC n p v` … `END_FUNC`, com `v` corrigido no fim do bloco | 7.4, 7.18 |
+| `if`, `if/else` | `TJMP_FW`, `JMP_FW` e rótulos de `newLabel()` | 7.5, 7.21 |
+| `while`, `do/while` | `JMP_BW` / `NOT` + `TJMP_BW` | 7.5, 7.22 |
+| `break`, `continue` | `JMP_FW` para a saída / `JMP_BW` ou `JMP_FW` para o teste | 7.5 |
+| `&& \|\| < > <= >= == != + - * /` | operandos e depois `AND OR LT GT LE GE EQ NEQ ADD SUB MUL DIV` | 7.6, 7.23–7.25 |
+| `- !` unários, literais | `NEG`, `NOT`, `LOAD_TRUE`, `LOAD_FALSE`, `LOAD_CONST n` | 7.7, 7.26 |
+| left-values `a.x`, `a[i]` | `LOAD_REF n`, `ADD n` (campo), `MUL n` + `ADD` (elemento) | 7.8, 7.27 |
+| left-value como valor | `DE_REF n` (n = tamanho do tipo, em células) | 7.8, 7.26 |
+| `LV = E` | `\|\|LV\|\| \|\|E\|\| STORE_REF n` | 7.8, 7.23 |
+| `++ --` pré/pós | `DUP DUP DE_REF 1 INC/DEC STORE_REF 1 DE_REF 1 [DEC/INC]` | 7.8, 7.26 |
+| variável escalar simples | `LOAD_VAR n`, `STORE_VAR n`, `LOAD_VAR INC DUP STORE_VAR` … | 7.9, 7.29 |
+| `s[i]` em string | `CHAR_AT n` / `SET_CHAR n` | 7.9, 7.29 |
+| chamada `f(a, b)` | argumentos empilhados pelas expressões + `CALL n` | 7.10, 7.28 |
+| `return E;` | `\|\|E\|\| RET` | 7.4 |
+| expressão como comando (`i++;`) | `\|\|E\|\|` + `POP` por célula | 7.3 |
+
+Endereçamento (seção 7.5): tamanhos são contados em valores escalares (células
+da pilha). Parâmetros começam no endereço 0 e as variáveis continuam a mesma
+numeração, inclusive as de blocos internos. O pool de constantes é a própria
+tabela de constantes do léxico: o argumento de `LOAD_CONST` é o token
+secundário.
+
+Por padrão, um identificador escalar sem `.` ou `[ ]` usa
+`LOAD_VAR`/`STORE_VAR` (fig. 7.9), que é o que os exemplos 7.4.1–7.4.3
+mostram, e qualquer outro left-value usa a forma geral da fig. 7.8. Com
+`--refs` a forma geral é usada sempre. As duas formas executam de forma
+idêntica (há testes para isso).
+
+### Máquina virtual
+
+`compiler/vm.py` monta o Assembly (resolve os rótulos, monta os pools de
+constantes e de funções) e o interpreta conforme a seção 7.1: a Pilha de
+Valores é polimórfica e guarda parâmetros e variáveis em `st[bp+n]`, e a Pilha
+Operacional guarda `(&ret, bp)` de quem chamou. Num `RET`, as células acima das
+variáveis da função (o valor de retorno, que pode ser um array inteiro) tomam
+o lugar do registro de ativação. A linguagem não tem E/S, então a CLI imprime o
+valor retornado pela função de entrada.
+
+### Erros
+
+Erros léxicos e sintáticos interrompem a compilação. Erros semânticos são
+acumulados e relatados com linha e coluna, com os códigos da apostila
+(`ERR_REDECL`, `ERR_NOT_DECL`, `ERR_TYPE_MISMATCH`, `ERR_BOOL_TYPE_EXPECTED`,
+`ERR_KIND_NOT_VAR`, `ERR_TOO_FEW_ARGS`, ...). Se houver qualquer erro, nenhum
+código é entregue, como o `ERROR_FLAG` da seção 7.6. Identificadores não
+declarados recebem o tipo Universal para não repetir mensagens.
+
+```
+$ python3 compile.py examples/fatorial.ssl
+examples/fatorial.ssl: linha 13, coluna 3: ERR_NOT_DECL: identificador 'resultado' não declarado
+1 erro(s); nenhum código gerado.
+```
+
+### Decisões e diferenças em relação à apostila
+
+- **Correções de erros de digitação da apostila**: `i <= n` gera `LE` (o
+  exemplo 7.4.1 imprime `LT`). O rótulo do `ME`/`MW` tem `:`. `LOAD_REF` recebe
+  o endereço da variável, e não o tamanho do tipo (fig. 7.27). `NEQ` segue a
+  tabela de instruções (fig. 7.2); a máquina aceita também `NE`.
+- **`v` em `BEGIN_FUNC` inclui os parâmetros**, como mandam as regras da seção
+  7.5 ("o tamanho calculado para as variáveis engloba o espaço ocupado pelos
+  parâmetros"). Alguns exemplos da seção 7.4 mostram só as variáveis locais.
+- **`true`/`false`** geram `LOAD_TRUE`/`LOAD_FALSE` (fig. 7.7), já que o léxico
+  não atribui token secundário a palavras reservadas.
+- **Compatibilidade de tipos** é estrutural (fig. 6.17), mas os aliases são
+  resolvidos antes da comparação, então `type nome = string` é compatível com
+  `string`. O laço dos campos de struct da figura também foi corrigido para
+  avançar nas duas listas.
+- **Relacionais só valem para escalares**: `EQ` compara uma célula, então
+  comparar arrays/structs é `ERR_INVALID_TYPE`.
+- **Extensões de gramática**: `return E;`, expressões como comando, listas de
+  parâmetros/argumentos/declarações/comandos vazias, `;` opcional após `type` e
+  após o último campo de struct.
+- **Não suportado**: variáveis globais (a máquina só endereça relativo ao BP,
+  então o compilador dá um erro claro), indexar uma string que esteja dentro
+  de struct/array (`CHAR_AT`/`SET_CHAR` endereçam só variáveis), `CALL_LIB`
+  (a apostila não define bibliotecas) e comentários no fonte (a gramática não
+  os prevê).
+- O exemplo 7.4.2 retorna `s1[i] - s2[i]`, que as próprias regras de tipo
+  rejeitam (`-` só vale para integer). `examples/codegen/strings.ssl` usa
+  comparações no lugar.

@@ -1,0 +1,42 @@
+type ponto = struct { x, y: integer };
+type reta = struct { a: ponto; b: ponto; nome: string };
+type pontos = array [4] of ponto;
+
+function soma(p: ponto, q: ponto): ponto
+{
+    var r: ponto;
+    r.x = p.x + q.x;
+    r.y = p.y + q.y;
+    return r;
+}
+
+function main(): integer
+{
+    var ps: pontos;
+    var r: reta;
+    var acc: ponto;
+    var i, n: integer;
+    i = 0;
+    while (true)
+    {
+        if (i == 4) break;
+        ps[i].x = i;
+        ps[i].y = i * 10;
+        i++;
+    }
+    r.a = ps[1];
+    r.b = soma(ps[2], ps[3]);
+    r.nome = "diagonal";
+    acc.x = 0;
+    acc.y = 0;
+    i = -1;
+    n = 0;
+    do
+    {
+        i++;
+        if (i == 2) continue;
+        acc = soma(acc, ps[i]);
+        n++;
+    } while (i < 3);
+    return acc.x + acc.y + r.b.y + n;
+}

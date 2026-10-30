@@ -1,0 +1,35 @@
+type intArray = array [10] of integer;
+
+function bSort(a: intArray, n: integer): intArray
+{
+    var i, j, v: integer;
+    i = 0;
+    while (i < n)
+    {
+        j = i + 1;
+        while (j < n)
+        {
+            if (a[i] > a[j])
+            {
+                v = a[i];
+                a[i] = a[j];
+                a[j] = v;
+            }
+            j++;
+        }
+        i++;
+    }
+    return a;
+}
+
+function main(): intArray
+{
+    var v: intArray;
+    var k: integer;
+    k = 0;
+    do
+    {
+        v[k] = (k * 7 + 3) - (k * 7 + 3) / 10 * 10;
+    } while (++k < 10);
+    return bSort(v, 10);
+}
