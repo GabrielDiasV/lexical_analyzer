@@ -20,6 +20,7 @@ from .tables import ConstTable, NameTable, search_keyword
 from .tokens import SINGLE_CHAR_SYMBOLS, TWO_CHAR_SYMBOLS, Token, TokenKind
 
 _EOF = ""  # sentinela de fim de arquivo devolvida por _read_char()
+_ESCAPES = {"0": "\0", "n": "\n", "t": "\t", "\\": "\\"}
 
 
 class LexicalError(Exception):
@@ -141,6 +142,10 @@ class Lexer:
             if self._next_char == _EOF:
                 return self._error("caractere não terminado", line, col)
             value = self._advance()                # exatamente UM caractere (any)
+            # Extensão: '\0', '\n', '\t' e '\\' (a apostila usa '\0' no cap. 7).
+            # '\' isolado continua sendo o caractere barra invertida.
+            if value == "\\" and self._next_char in _ESCAPES:
+                value = _ESCAPES[self._advance()]
             if self._next_char != "'":
                 return self._error("esperado ' para fechar o caractere", line, col)
             self._advance()                        # fecha aspa

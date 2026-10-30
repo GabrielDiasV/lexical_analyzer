@@ -1,0 +1,41 @@
+function strcmp(s1: string, s2: string): integer
+{
+    var i: integer;
+    i = 0;
+    while (s1[i] == s2[i] && s1[i] != '\0')
+    {
+        i = i + 1;
+    }
+    if (s1[i] < s2[i]) return -1;
+    if (s1[i] > s2[i]) return 1;
+    return 0;
+}
+
+function strinv(s: string): string
+{
+    var i, l: integer;
+    var c: char;
+    i = 0;
+    l = 0;
+    while (s[l] != '\0')
+    {
+        l = l + 1;
+    }
+    l = l - 1;
+    while (i < l)
+    {
+        c = s[i];
+        s[i++] = s[l];
+        s[l--] = c;
+    }
+    return s;
+}
+
+function main(): string
+{
+    var r: string;
+    r = strinv("compiladores") + " / " + strinv("ola, mundo");
+    if (strcmp(r, "serodalipmoc / odnum ,alo") != 0) return "ERRO";
+    if (strcmp("abc", "abd") != -1 || strcmp("abd", "abc") != 1) return "ERRO";
+    return r;
+}
